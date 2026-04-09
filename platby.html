@@ -175,9 +175,9 @@
                 <p id="stat-income" class="text-2xl font-black text-green-600">0 Kč</p>
             </div>
             <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                <p class="text-xs font-bold text-slate-400 uppercase mb-1">Fixní Výdaje</p>
+                <p class="text-xs font-bold text-slate-400 uppercase mb-1">Výdaje</p>
                 <p id="stat-expense" class="text-2xl font-black text-orange-600">0 Kč</p>
-                <p class="text-[10px] text-slate-400 mt-0.5">kat. Výdaj</p>
+                <p class="text-[10px] text-slate-400 mt-0.5">vše kromě spoření</p>
             </div>
             <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                 <p class="text-xs font-bold text-slate-400 uppercase mb-1">Spoření & Rezervy</p>
@@ -195,32 +195,8 @@
             </div>
         </div>
 
-        <!-- Doplňkové metriky -->
-        <div class="flex flex-wrap gap-3 mb-8">
-            <div
-                class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm text-sm">
-                <i data-lucide="piggy-bank" class="w-4 h-4 text-purple-500"></i>
-                <span class="text-slate-500 font-medium">Míra spoření:</span>
-                <span id="stat-savings-rate" class="font-black text-purple-600">0 %</span>
-            </div>
-            <div
-                class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm text-sm">
-                <i data-lucide="trending-down" class="w-4 h-4 text-orange-500"></i>
-                <span class="text-slate-500 font-medium">Nákladovost příjmů:</span>
-                <span id="stat-cost-ratio" class="font-black text-orange-600">0 %</span>
-            </div>
-            <div
-                class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm text-sm">
-                <i data-lucide="landmark" class="w-4 h-4 text-indigo-500"></i>
-                <span class="text-slate-500 font-medium">Zůstatek Běžný:</span>
-                <span id="stat-bezny" class="font-black text-indigo-600">0 Kč</span>
-            </div>
-            <div
-                class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm text-sm">
-                <i data-lucide="building-2" class="w-4 h-4 text-sky-500"></i>
-                <span class="text-slate-500 font-medium">Zůstatek Hypo:</span>
-                <span id="stat-hypo" class="font-black text-sky-600">0 Kč</span>
-            </div>
+        <!-- Doplňkové metriky (generováno dynamicky) -->
+        <div class="flex flex-wrap gap-3 mb-8" id="stats-additional">
         </div>
 
         <!-- Taby -->
@@ -622,28 +598,62 @@
         // ── STATS ─────────────────────────────────────────────────────────────
         function updateStats() {
             const income = data.filter(d => d.suma > 0).reduce((s, d) => s + d.suma, 0);
-            const expense = Math.abs(data.filter(d => d.pohyb === 'výdaj').reduce((s, d) => s + d.suma, 0));
-            const savings = Math.abs(data.filter(d => d.pohyb === 'spoření').reduce((s, d) => s + d.suma, 0));
-            const balance = data.reduce((s, d) => s + d.suma, 0);
-            const bezny = data.filter(d => d.ucet === 'běž').reduce((s, d) => s + d.suma, 0);
-            const hypo = data.filter(d => d.ucet === 'hypo').reduce((s, d) => s + d.suma, 0);
+
+            // Flexibilní třídění výdajů podle klíčového slova (case-insensitive)
+            const isSaving = (pohyb) => (pohyb || '').toLowerCase().includes('spoření');
+
+            const savings = Math.abs(data.filter(d => d.suma < 0 && isSaving(d.pohyb)).reduce((s, d) => s + d.suma, 0));
+            const outNoSav = Math.abs(data.filter(d => d.suma < 0 && !isSaving(d.pohyb)).reduce((s, d) => s + d.suma, 0));
             const allOut = Math.abs(data.filter(d => d.suma < 0).reduce((s, d) => s + d.suma, 0));
-            const outNoSav = Math.abs(data.filter(d => d.suma < 0 && d.pohyb !== 'spoření').reduce((s, d) => s + d.suma, 0));
+
+            const expense = outNoSav; // Všechny výdaje kromě spoření
+            const balance = data.reduce((s, d) => s + d.suma, 0);
             const free = income - outNoSav;
 
             $('stat-income').textContent = fmt(income) + ' Kč';
             $('stat-expense').textContent = fmt(expense) + ' Kč';
             $('stat-savings').textContent = fmt(savings) + ' Kč';
             $('stat-balance').textContent = fmt(balance) + ' Kč';
-            $('stat-bezny').textContent = fmt(bezny) + ' Kč';
-            $('stat-hypo').textContent = fmt(hypo) + ' Kč';
 
             const freeEl = $('stat-free');
             freeEl.textContent = fmt(free) + ' Kč';
             freeEl.className = `text-2xl font-black ${free >= 0 ? 'text-blue-600' : 'text-red-600'}`;
 
-            $('stat-savings-rate').textContent = income > 0 ? ((savings / income) * 100).toFixed(1) + ' %' : '—';
-            $('stat-cost-ratio').textContent = income > 0 ? ((allOut / income) * 100).toFixed(1) + ' %' : '—';
+            // Dynamické Doplňkové metriky a zůstatky účtů
+            const addContainer = $('stats-additional');
+            if (addContainer) {
+                let addHtml = `
+                    <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm text-sm">
+                        <i data-lucide="piggy-bank" class="w-4 h-4 text-purple-500"></i>
+                        <span class="text-slate-500 font-medium">Míra spoření:</span>
+                        <span class="font-black text-purple-600">${income > 0 ? ((savings / income) * 100).toFixed(1) + ' %' : '—'}</span>
+                    </div>
+                    <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm text-sm">
+                        <i data-lucide="trending-down" class="w-4 h-4 text-orange-500"></i>
+                        <span class="text-slate-500 font-medium">Nákladovost příjmů:</span>
+                        <span class="font-black text-orange-600">${income > 0 ? ((allOut / income) * 100).toFixed(1) + ' %' : '—'}</span>
+                    </div>`;
+
+                // Vytažení a sečtení účtů dynamicky
+                const accountSums = {};
+                data.forEach(d => {
+                    const acc = d.ucet ? d.ucet.trim() : 'Bez účtu';
+                    accountSums[acc] = (accountSums[acc] || 0) + d.suma;
+                });
+
+                Object.keys(accountSums).sort().forEach(acc => {
+                    const val = accountSums[acc];
+                    addHtml += `
+                    <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm text-sm">
+                        <i data-lucide="landmark" class="w-4 h-4 text-sky-500"></i>
+                        <span class="text-slate-500 font-medium">Zůstatek ${acc}:</span>
+                        <span class="font-black text-sky-600">${fmt(val)} Kč</span>
+                    </div>`;
+                });
+
+                addContainer.innerHTML = addHtml;
+                lucide.createIcons(); // Obnovení ikon v dynamickém obsahu
+            }
         }
 
         // ── ANALYSIS ─────────────────────────────────────────────────────────
@@ -763,7 +773,7 @@
         // ── PIVOT TABLE (dynamické sloupce účtů) ─────────────────────────────
         function renderPivotTable(income) {
             const totalInc = income ?? data.filter(d => d.suma > 0).reduce((s, d) => s + d.suma, 0);
-            const cats     = [...new Set(data.map(d => d.pohyb))];
+            const cats = [...new Set(data.map(d => d.pohyb))];
             const accounts = [...new Set(data.map(d => d.ucet).filter(Boolean))];
             const tbody = $('pivot-table-body'), tfoot = $('pivot-table-foot');
 
