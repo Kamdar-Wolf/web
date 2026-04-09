@@ -243,15 +243,10 @@
                 <form id="addForm" class="grid grid-cols-1 md:grid-cols-6 gap-4" novalidate>
                     <div class="flex flex-col gap-1">
                         <label for="in-pohyb" class="text-xs font-semibold text-slate-500">Typ</label>
-                        <select id="in-pohyb"
+                        <input type="text" id="in-pohyb" list="pohyb-list" placeholder="Příjem / Výdaj…" required
+                            autocomplete="off"
                             class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none text-sm">
-                            <option value="příjem">Příjem</option>
-                            <option value="výdaj">Výdaj</option>
-                            <option value="spoření">Spoření</option>
-                            <option value="x - licence">x – Licence</option>
-                            <option value="z - licence">z – Licence</option>
-                            <option value="zábava">Zábava</option>
-                        </select>
+                        <datalist id="pohyb-list"></datalist>
                     </div>
                     <div class="flex flex-col gap-1 md:col-span-2">
                         <label for="in-info" class="text-xs font-semibold text-slate-500">Název / Popis</label>
@@ -265,15 +260,13 @@
                     </div>
                     <div class="flex flex-col gap-1">
                         <label for="in-ucet" class="text-xs font-semibold text-slate-500">Účet</label>
-                        <select id="in-ucet"
+                        <input type="text" id="in-ucet" list="ucet-list" placeholder="Název účtu…" autocomplete="off"
                             class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none text-sm">
-                            <option value="běž">Běžný účet</option>
-                            <option value="hypo">Hypo / AirBank</option>
-                        </select>
+                        <datalist id="ucet-list"></datalist>
                     </div>
                     <div class="flex flex-col gap-1">
-                        <label for="in-mesic" class="text-xs font-semibold text-slate-500">Měsíc</label>
-                        <input type="month" id="in-mesic"
+                        <label for="in-poznamka" class="text-xs font-semibold text-slate-500">Poznámky</label>
+                        <input type="text" id="in-poznamka" placeholder="Volitelná poznámka…"
                             class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none text-sm">
                     </div>
                     <div class="flex items-end">
@@ -306,23 +299,11 @@
                                 class="px-4 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
                                 aria-label="Filtrovat podle typu">
                                 <option value="vše">Všechny typy</option>
-                                <option value="příjem">Jen příjmy</option>
-                                <option value="výdaj">Jen výdaje</option>
-                                <option value="spoření">Spoření</option>
-                                <option value="licence">Licence</option>
-                                <option value="zábava">Zábava</option>
                             </select>
                             <select id="filter-ucet" onchange="applyFilters()"
                                 class="px-4 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
                                 aria-label="Filtrovat podle účtu">
                                 <option value="vše">Všechny účty</option>
-                                <option value="běž">Běžný</option>
-                                <option value="hypo">Hypo</option>
-                            </select>
-                            <select id="filter-mesic" onchange="applyFilters()"
-                                class="px-4 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-                                aria-label="Filtrovat podle měsíce">
-                                <option value="vše">Všechny měsíce</option>
                             </select>
                             <button onclick="resetFilters()" id="btn-reset-filters"
                                 class="px-3 py-2 text-sm border border-slate-200 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition"
@@ -349,9 +330,9 @@
                                     class="sort-header px-6 py-4 transition-colors">
                                     <span class="sort-icon">Účet</span>
                                 </th>
-                                <th id="th-mesic" onclick="sortData('mesic')"
+                                <th id="th-poznamka" onclick="sortData('poznamka')"
                                     class="sort-header px-6 py-4 transition-colors">
-                                    <span class="sort-icon">Měsíc</span>
+                                    <span class="sort-icon">Poznámky</span>
                                 </th>
                                 <th id="th-suma" onclick="sortData('suma')"
                                     class="sort-header px-6 py-4 transition-colors text-right">
@@ -454,22 +435,32 @@
         ];
 
         let data = JSON.parse(localStorage.getItem('f_pro_data')) || initialData;
-        // Migrace starých záznamů bez pole mesic
-        data = data.map(d => ({ mesic: '', ...d }));
+        // Migrace: přejmenování mesic -> poznamka, odebrání starých hardcoded typů
+        data = data.map(d => {
+            const rec = { poznamka: d.mesic ?? '', ...d };
+            delete rec.mesic;
+            return rec;
+        });
 
         let sortKey = 'pohyb';
         let sortOrder = 'asc';
         let charts = {};
 
-        const COLORS = {
-            'příjem': '#16a34a',
-            'výdaj': '#ea580c',
-            'spoření': '#7c3aed',
-            'x - licence': '#2563eb',
-            'z - licence': '#3b82f6',
-            'zábava': '#ca8a04',
-            'ostatní': '#94a3b8'
-        };
+        // Dynamická barevná paleta pro libovolné typy
+        const COLOR_PALETTE = [
+            '#16a34a', '#ea580c', '#7c3aed', '#2563eb', '#ca8a04',
+            '#0891b2', '#be185d', '#b45309', '#4f46e5', '#0f766e',
+            '#9333ea', '#dc2626', '#059669', '#d97706', '#7c3aed'
+        ];
+        const _colorCache = {};
+        function getColor(str) {
+            if (!str) return '#94a3b8';
+            if (_colorCache[str]) return _colorCache[str];
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) & 0xffffffff;
+            _colorCache[str] = COLOR_PALETTE[Math.abs(hash) % COLOR_PALETTE.length];
+            return _colorCache[str];
+        }
 
         // ── TOAST ─────────────────────────────────────────────────────────────
         function showToast(msg, type = 'success') {
@@ -485,31 +476,24 @@
         function $(id) { return document.getElementById(id); }
         function fmt(n) { return n.toLocaleString('cs-CZ'); }
 
-        function formatMonth(m) {
-            if (!m) return '—';
-            const [y, mo] = m.split('-');
-            const names = ['led', 'úno', 'bře', 'dub', 'kvě', 'čvn', 'čvc', 'srp', 'zář', 'říj', 'lis', 'pro'];
-            return `${names[+mo - 1]} ${y}`;
-        }
+        // ── DYNAMIC FIELDS (datalist + filter dropdowns) ──────────────────────
+        function updateDynamicFields() {
+            const types = [...new Set(data.map(d => d.pohyb).filter(Boolean))].sort();
+            const accounts = [...new Set(data.map(d => d.ucet).filter(Boolean))].sort();
 
-        function getCurrentMonth() {
-            const now = new Date();
-            return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        }
+            // Datalist pro formulář
+            $('pohyb-list').innerHTML = types.map(t => `<option value="${t}">`).join('');
+            $('ucet-list').innerHTML = accounts.map(a => `<option value="${a}">`).join('');
 
-        // ── MONTH FILTER ──────────────────────────────────────────────────────
-        function populateMonthFilter() {
-            const months = [...new Set(data.map(d => d.mesic).filter(Boolean))].sort().reverse();
-            const sel = $('filter-mesic');
-            const current = sel.value;
-            sel.innerHTML = '<option value="vše">Všechny měsíce</option>';
-            months.forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m;
-                opt.textContent = formatMonth(m);
-                if (m === current) opt.selected = true;
-                sel.appendChild(opt);
-            });
+            // Filter dropdown – Typ
+            const fpVal = $('filter-pohyb').value;
+            $('filter-pohyb').innerHTML = '<option value="vše">Všechny typy</option>'
+                + types.map(t => `<option value="${t}"${t === fpVal ? ' selected' : ''}>${t}</option>`).join('');
+
+            // Filter dropdown – Účet
+            const fuVal = $('filter-ucet').value;
+            $('filter-ucet').innerHTML = '<option value="vše">Všechny účty</option>'
+                + accounts.map(a => `<option value="${a}"${a === fuVal ? ' selected' : ''}>${a}</option>`).join('');
         }
 
         // ── TABS ──────────────────────────────────────────────────────────────
@@ -540,7 +524,7 @@
             }
 
             list.forEach(item => {
-                const color = COLORS[item.pohyb] || COLORS.ostatní;
+                const color = getColor(item.pohyb);
                 const amtColor = item.suma > 0 ? 'text-green-600' : 'text-slate-900';
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-slate-50 transition-colors group';
@@ -552,8 +536,8 @@
                         </div>
                     </td>
                     <td class="px-6 py-4 text-slate-600">${item.info}</td>
-                    <td class="px-6 py-4 uppercase text-[11px] font-bold text-slate-400 tracking-wider">${item.ucet}</td>
-                    <td class="px-6 py-4 text-xs text-slate-400 font-medium">${formatMonth(item.mesic)}</td>
+                    <td class="px-6 py-4 text-[11px] font-bold text-slate-400 tracking-wider">${item.ucet || '—'}</td>
+                    <td class="px-6 py-4 text-xs text-slate-400">${item.poznamka || '—'}</td>
                     <td class="px-6 py-4 text-right font-black ${amtColor}">${fmt(item.suma)} Kč</td>
                     <td class="px-6 py-4 text-center">
                         <button onclick="removeItem(${item.id})"
@@ -570,7 +554,7 @@
 
         // ── SORT INDICATORS ───────────────────────────────────────────────────
         function updateSortIndicators() {
-            ['pohyb', 'info', 'ucet', 'mesic', 'suma'].forEach(k => {
+            ['pohyb', 'info', 'ucet', 'poznamka', 'suma'].forEach(k => {
                 const th = $(`th-${k}`);
                 if (!th) return;
                 th.classList.remove('sort-asc', 'sort-desc');
@@ -583,16 +567,13 @@
             const search = $('filter-search').value.toLowerCase();
             const type = $('filter-pohyb').value;
             const account = $('filter-ucet').value;
-            const month = $('filter-mesic').value;
 
             let filtered = data.filter(item => {
-                const matchSearch = item.info.toLowerCase().includes(search);
-                const matchType = type === 'vše' ? true
-                    : type === 'licence' ? item.pohyb.includes('licence')
-                        : item.pohyb === type;
+                const matchSearch = item.info.toLowerCase().includes(search)
+                    || (item.poznamka || '').toLowerCase().includes(search);
+                const matchType = type === 'vše' ? true : item.pohyb === type;
                 const matchAccount = account === 'vše' ? true : item.ucet === account;
-                const matchMonth = month === 'vše' ? true : item.mesic === month;
-                return matchSearch && matchType && matchAccount && matchMonth;
+                return matchSearch && matchType && matchAccount;
             });
 
             filtered.sort((a, b) => {
@@ -617,7 +598,6 @@
             $('filter-search').value = '';
             $('filter-pohyb').value = 'vše';
             $('filter-ucet').value = 'vše';
-            $('filter-mesic').value = 'vše';
             applyFilters();
         }
 
@@ -627,7 +607,7 @@
             if (!confirm(`Opravdu smazat záznam "${item?.info || ''}"?`)) return;
             data = data.filter(d => d.id !== id);
             save();
-            populateMonthFilter();
+            updateDynamicFields();
             applyFilters();
             showToast('Záznam smazán.', 'info');
         }
@@ -635,22 +615,25 @@
         // ── ADD ───────────────────────────────────────────────────────────────
         $('addForm').onsubmit = function (e) {
             e.preventDefault();
-            const p = $('in-pohyb').value;
+            const p = $('in-pohyb').value.trim();
             let s = parseFloat($('in-suma').value);
             const i = $('in-info').value.trim();
-            const u = $('in-ucet').value;
-            const m = $('in-mesic').value;
+            const u = $('in-ucet').value.trim();
+            const z = $('in-poznamka').value.trim();
 
+            if (!p) { showToast('Zadej typ záznamu.', 'error'); return; }
             if (isNaN(s) || s <= 0) { showToast('Zadej platnou kladnou částku.', 'error'); return; }
             if (!i) { showToast('Zadej název záznamu.', 'error'); return; }
 
-            if (p !== 'příjem' && s > 0) s = -s;
+            // Automaticky změnit znaménko pro výdajové typy
+            // Příjem = kladný, vše ostatní = záporný
+            const isIncome = p.toLowerCase().includes('příjem');
+            if (!isIncome && s > 0) s = -s;
 
-            data.push({ id: Date.now(), pohyb: p, info: i, suma: s, ucet: u, mesic: m });
+            data.push({ id: Date.now(), pohyb: p, info: i, suma: s, ucet: u, poznamka: z });
             save();
             this.reset();
-            $('in-mesic').value = getCurrentMonth();
-            populateMonthFilter();
+            updateDynamicFields();
             applyFilters();
             showToast('Záznam byl přidán!', 'success');
         };
@@ -689,17 +672,16 @@
 
             const income = data.filter(d => d.suma > 0).reduce((s, d) => s + d.suma, 0);
 
-            // Kategorie odchodů
+            // Kategorie odchodů (všechny položky se záporným suma)
             const catSums = {};
             data.forEach(d => { if (d.suma < 0) catSums[d.pohyb] = (catSums[d.pohyb] || 0) + Math.abs(d.suma); });
 
-            // Bilance skupin
-            const bilance = { 'Příjmy': 0, 'Výdaje': 0, 'Spoření': 0, 'Licence+Zábava': 0 };
-            data.forEach(d => {
-                if (d.pohyb === 'příjem') bilance['Příjmy'] += d.suma;
-                else if (d.pohyb === 'spoření') bilance['Spoření'] += Math.abs(d.suma);
-                else if (d.pohyb === 'výdaj') bilance['Výdaje'] += Math.abs(d.suma);
-                else bilance['Licence+Zábava'] += Math.abs(d.suma);
+            // Bilance – dynamická (všechny typy)
+            const allTypes = [...new Set(data.map(d => d.pohyb))];
+            const bilanceLabels = allTypes;
+            const bilanceData = allTypes.map(t => {
+                const s = data.filter(d => d.pohyb === t).reduce((a, d) => a + d.suma, 0);
+                return Math.abs(s);
             });
 
             // Chart 1 – Doughnut
@@ -709,7 +691,7 @@
                     labels: Object.keys(catSums),
                     datasets: [{
                         data: Object.values(catSums),
-                        backgroundColor: Object.keys(catSums).map(k => COLORS[k] || COLORS.ostatní),
+                        backgroundColor: Object.keys(catSums).map(k => getColor(k)),
                         borderWidth: 0, hoverOffset: 15
                     }]
                 },
@@ -722,14 +704,14 @@
                 }
             });
 
-            // Chart 2 – Bar bilance
+            // Chart 2 – Bar bilance (dynamický)
             charts.bar = new Chart($('chart-bar').getContext('2d'), {
                 type: 'bar',
                 data: {
-                    labels: Object.keys(bilance),
+                    labels: bilanceLabels,
                     datasets: [{
-                        label: 'Kč', data: Object.values(bilance),
-                        backgroundColor: [COLORS.příjem, COLORS.výdaj, COLORS.spoření, COLORS.zábava],
+                        label: 'Kč', data: bilanceData,
+                        backgroundColor: bilanceLabels.map(t => getColor(t)),
                         borderRadius: 8
                     }]
                 },
@@ -740,24 +722,24 @@
                 }
             });
 
-            // Chart 3 – Cashflow
-            const cfGroups = {
-                'Výdaje': Math.abs(data.filter(d => d.pohyb === 'výdaj').reduce((s, d) => s + d.suma, 0)),
-                'Spoření': Math.abs(data.filter(d => d.pohyb === 'spoření').reduce((s, d) => s + d.suma, 0)),
-                'Licence': Math.abs(data.filter(d => d.pohyb.includes('licence')).reduce((s, d) => s + d.suma, 0)),
-                'Zábava': Math.abs(data.filter(d => d.pohyb === 'zábava').reduce((s, d) => s + d.suma, 0)),
-            };
-            const cfBalance = income - Object.values(cfGroups).reduce((s, v) => s + v, 0);
+            // Chart 3 – Cashflow zásobník
+            const outGroups = {};
+            data.filter(d => d.suma < 0).forEach(d => {
+                outGroups[d.pohyb] = (outGroups[d.pohyb] || 0) + Math.abs(d.suma);
+            });
+            const cfLabels = ['Příjmy', ...Object.keys(outGroups), 'Zůstatek'];
+            const cfBalance = income - Object.values(outGroups).reduce((s, v) => s + v, 0);
+            const cfData = [income, ...Object.values(outGroups), cfBalance];
+            const cfColors = [
+                getColor('příjem'),
+                ...Object.keys(outGroups).map(k => getColor(k)),
+                cfBalance >= 0 ? '#0ea5e9' : '#dc2626'
+            ];
             charts.cashflow = new Chart($('chart-cashflow').getContext('2d'), {
                 type: 'bar',
                 data: {
-                    labels: ['Příjmy', ...Object.keys(cfGroups), 'Zůstatek'],
-                    datasets: [{
-                        label: 'Kč',
-                        data: [income, ...Object.values(cfGroups), cfBalance],
-                        backgroundColor: ['#16a34a', '#ea580c', '#7c3aed', '#2563eb', '#ca8a04', cfBalance >= 0 ? '#0ea5e9' : '#dc2626'],
-                        borderRadius: 8
-                    }]
+                    labels: cfLabels,
+                    datasets: [{ label: 'Kč', data: cfData, backgroundColor: cfColors, borderRadius: 8 }]
                 },
                 options: {
                     maintainAspectRatio: false,
@@ -768,7 +750,6 @@
 
             renderBudgetOverview(income, catSums);
             renderPivotTable(income);
-            renderHistoricalChart();
         }
 
         // ── BUDGET OVERVIEW ───────────────────────────────────────────────────
@@ -778,7 +759,7 @@
             if (!income) { cont.innerHTML = '<p class="text-sm text-slate-400">Nejsou k dispozici žádné příjmy.</p>'; return; }
             Object.entries(catSums).sort((a, b) => b[1] - a[1]).forEach(([cat, sum]) => {
                 const pct = Math.min((sum / income) * 100, 100);
-                const color = COLORS[cat] || COLORS.ostatní;
+                const color = getColor(cat);
                 const div = document.createElement('div');
                 div.innerHTML = `
                     <div class="flex justify-between items-center mb-1">
@@ -798,70 +779,48 @@
             });
         }
 
-        // ── PIVOT TABLE ───────────────────────────────────────────────────────
+        // ── PIVOT TABLE (dynamické sloupce účtů) ─────────────────────────────
         function renderPivotTable(income) {
             const totalInc = income ?? data.filter(d => d.suma > 0).reduce((s, d) => s + d.suma, 0);
-            const cats = [...new Set(data.map(d => d.pohyb))];
+            const cats     = [...new Set(data.map(d => d.pohyb))];
+            const accounts = [...new Set(data.map(d => d.ucet).filter(Boolean))];
             const tbody = $('pivot-table-body'), tfoot = $('pivot-table-foot');
+
+            // Dynamická hlavička
+            const thead = tfoot.closest('table').querySelector('thead tr');
+            thead.innerHTML = `
+                <th class="px-6 py-3 text-left border-r">Kategorie</th>
+                ${accounts.map(a => `<th class="px-6 py-3 text-right border-l">${a || '(bez účtu)'}</th>`).join('')}
+                <th class="px-6 py-3 text-right border-l font-black text-indigo-600">Součet</th>
+                <th class="px-6 py-3 text-right border-l text-slate-400">% z příjmů</th>`;
+
             tbody.innerHTML = '';
-            let totB = 0, totH = 0;
+            const totals = Array(accounts.length).fill(0);
+
             cats.forEach(cat => {
-                const sumB = data.filter(d => d.pohyb === cat && d.ucet === 'běž').reduce((s, d) => s + d.suma, 0);
-                const sumH = data.filter(d => d.pohyb === cat && d.ucet === 'hypo').reduce((s, d) => s + d.suma, 0);
-                const sumRow = sumB + sumH;
-                totB += sumB; totH += sumH;
+                const sums = accounts.map(a =>
+                    data.filter(d => d.pohyb === cat && d.ucet === a).reduce((s, d) => s + d.suma, 0)
+                );
+                const sumRow = sums.reduce((s, v) => s + v, 0);
+                sums.forEach((v, i) => totals[i] += v);
                 const pct = totalInc > 0 && sumRow < 0 ? (Math.abs(sumRow) / totalInc * 100).toFixed(1) + ' %' : '—';
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td class="px-6 py-4 font-bold text-slate-600 border-r">${cat}</td>
-                    <td class="px-6 py-4 text-right ${sumB >= 0 ? 'text-green-600' : 'text-slate-700'}">${fmt(sumB)} Kč</td>
-                    <td class="px-6 py-4 text-right border-l ${sumH >= 0 ? 'text-green-600' : 'text-slate-700'}">${fmt(sumH)} Kč</td>
+                    ${sums.map(s => `<td class="px-6 py-4 text-right border-l ${s >= 0 ? 'text-green-600' : 'text-slate-700'}">${fmt(s)} Kč</td>`).join('')}
                     <td class="px-6 py-4 text-right border-l font-bold ${sumRow >= 0 ? 'text-indigo-600' : 'text-slate-900'}">${fmt(sumRow)} Kč</td>
                     <td class="px-6 py-4 text-right border-l text-sm text-slate-400">${pct}</td>`;
                 tbody.appendChild(tr);
             });
-            const tot = totB + totH;
+
+            const grandTotal = totals.reduce((s, v) => s + v, 0);
             tfoot.innerHTML = `
                 <tr>
                     <td class="px-6 py-4 border-r text-slate-700">CELKOVÝ SOUČET</td>
-                    <td class="px-6 py-4 text-right">${fmt(totB)} Kč</td>
-                    <td class="px-6 py-4 text-right border-l">${fmt(totH)} Kč</td>
-                    <td class="px-6 py-4 text-right border-l font-black text-indigo-700">${fmt(tot)} Kč</td>
+                    ${totals.map(t => `<td class="px-6 py-4 text-right border-l">${fmt(t)} Kč</td>`).join('')}
+                    <td class="px-6 py-4 text-right border-l font-black text-indigo-700">${fmt(grandTotal)} Kč</td>
                     <td class="px-6 py-4 border-l"></td>
                 </tr>`;
-        }
-
-        // ── HISTORICAL CHART ──────────────────────────────────────────────────
-        function renderHistoricalChart() {
-            const months = [...new Set(data.map(d => d.mesic).filter(Boolean))].sort();
-            const sec = $('section-history');
-            if (months.length < 2) { sec.classList.add('hidden'); return; }
-            sec.classList.remove('hidden');
-
-            const incArr = months.map(m => data.filter(d => d.mesic === m && d.suma > 0).reduce((s, d) => s + d.suma, 0));
-            const outArr = months.map(m => Math.abs(data.filter(d => d.mesic === m && d.suma < 0).reduce((s, d) => s + d.suma, 0)));
-            const balArr = months.map((_, i) => incArr[i] - outArr[i]);
-
-            if (charts.monthly) charts.monthly.destroy();
-            charts.monthly = new Chart($('chart-monthly').getContext('2d'), {
-                type: 'line',
-                data: {
-                    labels: months.map(formatMonth),
-                    datasets: [
-                        { label: 'Příjmy', data: incArr, borderColor: '#16a34a', backgroundColor: '#16a34a20', fill: true, tension: .35, pointRadius: 5 },
-                        { label: 'Výdaje', data: outArr, borderColor: '#ea580c', backgroundColor: '#ea580c20', fill: true, tension: .35, pointRadius: 5 },
-                        { label: 'Zůstatek', data: balArr, borderColor: '#4f46e5', backgroundColor: '#4f46e520', fill: true, tension: .35, pointRadius: 5, borderDash: [6, 3] },
-                    ]
-                },
-                options: {
-                    maintainAspectRatio: false,
-                    scales: { y: { beginAtZero: true, ticks: { callback: v => fmt(v) } } },
-                    plugins: {
-                        legend: { position: 'bottom', labels: { font: { family: 'Plus Jakarta Sans', size: 11 } } },
-                        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.raw)} Kč` } }
-                    }
-                }
-            });
         }
 
         // ── SAVE ──────────────────────────────────────────────────────────────
@@ -928,9 +887,13 @@
                             if (!(k in item)) throw new Error(`Záznam č.${idx + 1} chybí pole "${k}".`);
                         });
                     });
-                    data = parsed.map(d => ({ mesic: '', ...d }));
+                    data = parsed.map(d => {
+                        const rec = { poznamka: d.mesic ?? d.poznamka ?? '', ...d };
+                        delete rec.mesic;
+                        return rec;
+                    });
                     save();
-                    populateMonthFilter();
+                    updateDynamicFields();
                     applyFilters();
                     if ($('section-analysis') && !$('section-analysis').classList.contains('hidden')) renderAnalysis();
                     showToast(`Import dokončen (${data.length} záznamů).`, 'success');
@@ -944,8 +907,7 @@
 
         // ── INIT ──────────────────────────────────────────────────────────────
         window.onload = () => {
-            $('in-mesic').value = getCurrentMonth();
-            populateMonthFilter();
+            updateDynamicFields();
             applyFilters();
             lucide.createIcons();
         };
