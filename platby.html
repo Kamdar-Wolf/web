@@ -117,6 +117,12 @@
             border-radius: 999px;
             transition: width .6s ease;
         }
+
+        .compact-table td {
+            padding-top: 0.25rem !important;
+            padding-bottom: 0.25rem !important;
+            font-size: 0.85rem !important;
+        }
     </style>
 </head>
 
@@ -231,7 +237,7 @@
                     </div>
                     <div class="flex flex-col gap-1">
                         <label for="in-suma" class="text-xs font-semibold text-slate-500">Částka (Kč)</label>
-                        <input type="number" id="in-suma" placeholder="0" min="0.01" step="0.01" required
+                        <input type="number" id="in-suma" placeholder="0" step="any" required
                             class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none text-sm">
                     </div>
                     <div class="flex flex-col gap-1">
@@ -286,12 +292,17 @@
                                 aria-label="Resetovat všechny filtry" title="Resetovat filtry">
                                 <i data-lucide="x" class="w-4 h-4 inline-block"></i>
                             </button>
+                            <button onclick="toggleCompact()" id="btn-toggle-compact"
+                                class="px-3 py-2 text-sm border border-slate-200 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition bg-white"
+                                aria-label="Přepnout kompaktní zobrazení" title="Kompaktní zobrazení">
+                                <i data-lucide="minimize-2" class="w-4 h-4 inline-block"></i>
+                            </button>
                         </div>
                     </div>
                 </div>
 
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left">
+                    <table class="w-full text-left" id="main-table">
                         <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-400 border-b">
                             <tr>
                                 <th id="th-pohyb" onclick="sortData('pohyb')"
@@ -402,6 +413,7 @@
         let sortKey = 'pohyb';
         let sortOrder = 'asc';
         let charts = {};
+        let editingId = null;
 
         // Dynamická barevná paleta pro libovolné typy
         const COLOR_PALETTE = [
@@ -497,11 +509,18 @@
                     <td class="px-6 py-4 text-xs text-slate-400">${item.poznamka || '—'}</td>
                     <td class="px-6 py-4 text-right font-black ${amtColor}">${fmt(item.suma)} Kč</td>
                     <td class="px-6 py-4 text-center">
-                        <button onclick="removeItem(${item.id})"
-                            class="p-2 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
-                            aria-label="Smazat záznam: ${item.info}">
-                            <i data-lucide="trash-2" class="w-4 h-4"></i>
-                        </button>
+                        <div class="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onclick="editItem(${item.id})"
+                                class="p-2 rounded-lg hover:bg-amber-50 text-slate-300 hover:text-amber-500 transition"
+                                aria-label="Upravit záznam: ${item.info}">
+                                <i data-lucide="edit-2" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="removeItem(${item.id})"
+                                class="p-2 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition"
+                                aria-label="Smazat záznam: ${item.info}">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
                     </td>`;
                 tbody.appendChild(tr);
             });
@@ -558,7 +577,33 @@
             applyFilters();
         }
 
-        // ── REMOVE ────────────────────────────────────────────────────────────
+        let isCompact = false;
+        function toggleCompact(forceLoad) {
+            if (forceLoad !== undefined) {
+                isCompact = !forceLoad;
+            }
+            isCompact = !isCompact;
+
+            const btn = $('btn-toggle-compact');
+            const table = $('main-table');
+            if (!btn || !table) return;
+
+            if (isCompact) {
+                table.classList.add('compact-table');
+                btn.classList.add('bg-slate-200', 'text-slate-800');
+                btn.classList.remove('bg-white', 'text-slate-400');
+                btn.innerHTML = '<i data-lucide="maximize-2" class="w-4 h-4 inline-block"></i>';
+            } else {
+                table.classList.remove('compact-table');
+                btn.classList.remove('bg-slate-200', 'text-slate-800');
+                btn.classList.add('bg-white', 'text-slate-400');
+                btn.innerHTML = '<i data-lucide="minimize-2" class="w-4 h-4 inline-block"></i>';
+            }
+            lucide.createIcons();
+            localStorage.setItem('f_pro_compact', isCompact);
+        }
+
+        // ── ACTIONS (Odstranit / Upravit) ─────────────────────────────────────
         function removeItem(id) {
             const item = data.find(d => d.id === id);
             if (!confirm(`Opravdu smazat záznam "${item?.info || ''}"?`)) return;
@@ -569,7 +614,24 @@
             showToast('Záznam smazán.', 'info');
         }
 
-        // ── ADD ───────────────────────────────────────────────────────────────
+        function editItem(id) {
+            const item = data.find(d => d.id === id);
+            if (!item) return;
+            editingId = id;
+            $('in-pohyb').value = item.pohyb || '';
+            $('in-suma').value = item.suma;
+            $('in-info').value = item.info || '';
+            $('in-ucet').value = item.ucet || '';
+            $('in-poznamka').value = item.poznamka || '';
+
+            const btn = $('btn-add');
+            btn.innerHTML = '<i data-lucide="save" class="w-4 h-4 mr-1 inline-block"></i> Uložit změny';
+            btn.className = 'w-full flex justify-center items-center bg-amber-500 text-white font-bold rounded-xl py-2.5 hover:bg-amber-600 transition shadow-lg shadow-amber-100 text-sm';
+            lucide.createIcons();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // ── ADD / UPDATE ──────────────────────────────────────────────────────
         $('addForm').onsubmit = function (e) {
             e.preventDefault();
             const p = $('in-pohyb').value.trim();
@@ -579,20 +641,32 @@
             const z = $('in-poznamka').value.trim();
 
             if (!p) { showToast('Zadej typ záznamu.', 'error'); return; }
-            if (isNaN(s) || s <= 0) { showToast('Zadej platnou kladnou částku.', 'error'); return; }
+            if (isNaN(s)) { showToast('Zadej platnou částku.', 'error'); return; }
             if (!i) { showToast('Zadej název záznamu.', 'error'); return; }
 
             // Automaticky změnit znaménko pro výdajové typy
-            // Příjem = kladný, vše ostatní = záporný
             const isIncome = p.toLowerCase().includes('příjem');
             if (!isIncome && s > 0) s = -s;
 
-            data.push({ id: Date.now(), pohyb: p, info: i, suma: s, ucet: u, poznamka: z });
+            const isEdit = !!editingId;
+            if (isEdit) {
+                const idx = data.findIndex(d => d.id === editingId);
+                if (idx > -1) {
+                    data[idx] = { ...data[idx], pohyb: p, info: i, suma: s, ucet: u, poznamka: z };
+                }
+                editingId = null;
+                const btn = $('btn-add');
+                btn.innerHTML = 'Přidat';
+                btn.className = 'w-full bg-indigo-600 text-white font-bold rounded-xl py-2.5 hover:bg-indigo-700 transition shadow-lg shadow-indigo-100 text-sm';
+            } else {
+                data.push({ id: Date.now(), pohyb: p, info: i, suma: s, ucet: u, poznamka: z });
+            }
+
             save();
             this.reset();
             updateDynamicFields();
             applyFilters();
-            showToast('Záznam byl přidán!', 'success');
+            showToast(isEdit ? 'Záznam byl upraven!' : 'Záznam byl přidán!', 'success');
         };
 
         // ── STATS ─────────────────────────────────────────────────────────────
@@ -900,6 +974,9 @@
         window.onload = () => {
             updateDynamicFields();
             applyFilters();
+            if (localStorage.getItem('f_pro_compact') === 'true') {
+                toggleCompact(true);
+            }
             lucide.createIcons();
         };
     </script>
