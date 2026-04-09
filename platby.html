@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="cs">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Finanční Analytik Pro – přehled příjmů, výdajů a analýza osobních financí.">
+    <title>Přehled plateb</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        .sort-header {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .sort-header:hover {
+            background-color: #f1f5f9;
+        }
+
+        .sort-asc .sort-icon::after {
+            content: ' ↑';
+            color: #4f46e5;
+            font-weight: 900;
+        }
+
+        .sort-desc .sort-icon::after {
+            content: ' ↓';
+            color: #4f46e5;
+            font-weight: 900;
+        }
+
+        .active-tab {
+            border-bottom: 2px solid #4f46e5;
+            color: #4f46e5;
+        }
+
+        #toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: none;
+        }
+
+        .toast {
+            background: #1e293b;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, .2);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            pointer-events: auto;
+            animation: toastIn .3s ease, toastOut .3s ease 2.7s forwards;
+        }
+
+        .toast.success {
+            border-left: 3px solid #16a34a;
+        }
+
+        .toast.error {
+            border-left: 3px solid #dc2626;
+        }
+
+        .toast.info {
+            border-left: 3px solid #4f46e5;
+        }
+
+        @keyframes toastIn {
+            from {
+                opacity: 0;
+                transform: translateY(16px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes toastOut {
+            from {
+                opacity: 1;
+                transform: translateY(0);
+            }
+
+            to {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+        }
+
+        .budget-bar {
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 999px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+
+        .budget-bar-fill {
+            height: 100%;
+            border-radius: 999px;
+            transition: width .6s ease;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 min-h-screen text-slate-800 pb-16">
+
+    <div id="toast-container"></div>
+
+    <!-- Navigace -->
+    <header class="bg-white border-b sticky top-0 z-50 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="bg-indigo-600 p-2 rounded-xl text-white">
+                    <i data-lucide="bar-chart-3"></i>
+                </div>
+                <h1 class="text-xl font-extrabold tracking-tight">Finanční <span class="text-indigo-600">Analýza</span>
+                </h1>
+            </div>
+            <div class="flex items-center gap-2">
+                <!-- Auto-save indikátor -->
+                <div id="save-indicator"
+                    class="hidden items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-green-700 bg-green-50 border border-green-200 transition-all">
+                    <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                    <span id="save-label">Uloženo</span>
+                </div>
+                <button id="btn-clear-all" onclick="clearAll()"
+                    class="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-red-400 hover:bg-red-50 hover:text-red-600 rounded-xl transition"
+                    aria-label="Vymazat všechna data">
+                    <i data-lucide="trash" class="w-4 h-4"></i>
+                </button>
+                <button id="btn-export-csv" onclick="exportCSV()"
+                    class="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                    aria-label="Exportovat jako CSV">
+                    <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> CSV
+                </button>
+                <button id="btn-export-json" onclick="exportJSON()"
+                    class="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                    aria-label="Exportovat jako JSON">
+                    <i data-lucide="download" class="w-4 h-4"></i> Export
+                </button>
+                <label id="btn-import"
+                    class="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl cursor-pointer transition"
+                    aria-label="Importovat JSON soubor">
+                    <i data-lucide="upload" class="w-4 h-4"></i> Import
+                    <input type="file" id="importInput" class="hidden" accept=".json" onchange="importJSON(event)">
+                </label>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-8">
+
+        <!-- Karty metrik -->
+        <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-xs font-bold text-slate-400 uppercase mb-1">Celkové Příjmy</p>
+                <p id="stat-income" class="text-2xl font-black text-green-600">0 Kč</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-xs font-bold text-slate-400 uppercase mb-1">Fixní Výdaje</p>
+                <p id="stat-expense" class="text-2xl font-black text-orange-600">0 Kč</p>
+                <p class="text-[10px] text-slate-400 mt-0.5">kat. Výdaj</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-xs font-bold text-slate-400 uppercase mb-1">Spoření & Rezervy</p>
+                <p id="stat-savings" class="text-2xl font-black text-purple-600">0 Kč</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-xs font-bold text-slate-400 uppercase mb-1">Disponibilní</p>
+                <p id="stat-free" class="text-2xl font-black text-blue-600">0 Kč</p>
+                <p class="text-[10px] text-slate-400 mt-0.5">příjmy − výdaje bez spoření</p>
+            </div>
+            <div class="bg-indigo-600 p-5 rounded-2xl shadow-xl shadow-indigo-100">
+                <p class="text-xs font-bold text-indigo-200 uppercase mb-1">Čistý Zůstatek</p>
+                <p id="stat-balance" class="text-2xl font-black text-white">0 Kč</p>
+                <p class="text-[10px] text-indigo-300 mt-0.5">příjmy − vše</p>
+            </div>
+        </div>
+
+        <!-- Doplňkové metriky -->
+        <div class="flex flex-wrap gap-3 mb-8">
+            <div
+                class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm text-sm">
+                <i data-lucide="piggy-bank" class="w-4 h-4 text-purple-500"></i>
+                <span class="text-slate-500 font-medium">Míra spoření:</span>
+                <span id="stat-savings-rate" class="font-black text-purple-600">0 %</span>
+            </div>
+            <div
+                class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm text-sm">
+                <i data-lucide="trending-down" class="w-4 h-4 text-orange-500"></i>
+                <span class="text-slate-500 font-medium">Nákladovost příjmů:</span>
+                <span id="stat-cost-ratio" class="font-black text-orange-600">0 %</span>
+            </div>
+            <div
+                class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm text-sm">
+                <i data-lucide="landmark" class="w-4 h-4 text-indigo-500"></i>
+                <span class="text-slate-500 font-medium">Zůstatek Běžný:</span>
+                <span id="stat-bezny" class="font-black text-indigo-600">0 Kč</span>
+            </div>
+            <div
+                class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm text-sm">
+                <i data-lucide="building-2" class="w-4 h-4 text-sky-500"></i>
+                <span class="text-slate-500 font-medium">Zůstatek Hypo:</span>
+                <span id="stat-hypo" class="font-black text-sky-600">0 Kč</span>
+            </div>
+        </div>
+
+        <!-- Taby -->
+        <div class="flex gap-8 mb-8 border-b border-slate-200">
+            <button id="tab-list" onclick="switchTab('list')"
+                class="active-tab pb-4 font-bold text-sm transition-all px-2">Správa a Třídění</button>
+            <button id="tab-analysis" onclick="switchTab('analysis')"
+                class="pb-4 font-bold text-sm text-slate-400 hover:text-slate-600 transition-all px-2">Detailní
+                Analýza</button>
+        </div>
+
+        <!-- SEKCE 1: Správa -->
+        <div id="section-list" class="space-y-6">
+
+            <!-- Formulář přidání -->
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <h2 class="font-bold mb-4 flex items-center gap-2">
+                    <i data-lucide="plus-circle" class="text-indigo-600 w-5 h-5"></i> Přidat záznam
+                </h2>
+                <form id="addForm" class="grid grid-cols-1 md:grid-cols-6 gap-4" novalidate>
+                    <div class="flex flex-col gap-1">
+                        <label for="in-pohyb" class="text-xs font-semibold text-slate-500">Typ</label>
+                        <input type="text" id="in-pohyb" list="pohyb-list" placeholder="Příjem / Výdaj…" required
+                            autocomplete="off"
+                            class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none text-sm">
+                        <datalist id="pohyb-list"></datalist>
+                    </div>
+                    <div class="flex flex-col gap-1 md:col-span-2">
+                        <label for="in-info" class="text-xs font-semibold text-slate-500">Název / Popis</label>
+                        <input type="text" id="in-info" placeholder="Např. Spotify" required
+                            class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none text-sm">
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label for="in-suma" class="text-xs font-semibold text-slate-500">Částka (Kč)</label>
+                        <input type="number" id="in-suma" placeholder="0" min="0.01" step="0.01" required
+                            class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none text-sm">
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label for="in-ucet" class="text-xs font-semibold text-slate-500">Účet</label>
+                        <input type="text" id="in-ucet" list="ucet-list" placeholder="Název účtu…" autocomplete="off"
+                            class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none text-sm">
+                        <datalist id="ucet-list"></datalist>
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label for="in-poznamka" class="text-xs font-semibold text-slate-500">Poznámky</label>
+                        <input type="text" id="in-poznamka" placeholder="Volitelná poznámka…"
+                            class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none text-sm">
+                    </div>
+                    <div class="flex items-end">
+                        <button type="submit" id="btn-add"
+                            class="w-full bg-indigo-600 text-white font-bold rounded-xl py-2.5 hover:bg-indigo-700 transition shadow-lg shadow-indigo-100 text-sm">
+                            Přidat
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Filtry + Tabulka -->
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div class="p-6 border-b bg-slate-50/50">
+                    <div class="flex flex-wrap items-center justify-between gap-4">
+                        <h2 class="font-bold flex items-center gap-2">
+                            Seznam plateb
+                            <span id="filtered-count"
+                                class="text-xs font-normal text-slate-400 bg-white border px-2 py-0.5 rounded-full">0</span>
+                        </h2>
+                        <div class="flex flex-wrap items-center gap-3">
+                            <div class="relative">
+                                <i data-lucide="search" class="absolute left-3 top-2.5 w-4 h-4 text-slate-400"></i>
+                                <input type="text" id="filter-search" oninput="applyFilters()"
+                                    placeholder="Hledat v popisu..."
+                                    class="pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 w-48 lg:w-64"
+                                    aria-label="Hledat v popisu záznamu">
+                            </div>
+                            <select id="filter-pohyb" onchange="applyFilters()"
+                                class="px-4 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                                aria-label="Filtrovat podle typu">
+                                <option value="vše">Všechny typy</option>
+                            </select>
+                            <select id="filter-ucet" onchange="applyFilters()"
+                                class="px-4 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                                aria-label="Filtrovat podle účtu">
+                                <option value="vše">Všechny účty</option>
+                            </select>
+                            <button onclick="resetFilters()" id="btn-reset-filters"
+                                class="px-3 py-2 text-sm border border-slate-200 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition"
+                                aria-label="Resetovat všechny filtry" title="Resetovat filtry">
+                                <i data-lucide="x" class="w-4 h-4 inline-block"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-400 border-b">
+                            <tr>
+                                <th id="th-pohyb" onclick="sortData('pohyb')"
+                                    class="sort-header px-6 py-4 transition-colors">
+                                    <span class="sort-icon">Typ</span>
+                                </th>
+                                <th id="th-info" onclick="sortData('info')"
+                                    class="sort-header px-6 py-4 transition-colors">
+                                    <span class="sort-icon">Info</span>
+                                </th>
+                                <th id="th-ucet" onclick="sortData('ucet')"
+                                    class="sort-header px-6 py-4 transition-colors">
+                                    <span class="sort-icon">Účet</span>
+                                </th>
+                                <th id="th-poznamka" onclick="sortData('poznamka')"
+                                    class="sort-header px-6 py-4 transition-colors">
+                                    <span class="sort-icon">Poznámky</span>
+                                </th>
+                                <th id="th-suma" onclick="sortData('suma')"
+                                    class="sort-header px-6 py-4 transition-colors text-right">
+                                    <span class="sort-icon">Částka</span>
+                                </th>
+                                <th class="px-6 py-4 text-center">Akce</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body" class="divide-y divide-slate-100 text-sm"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- SEKCE 2: Analýza -->
+        <div id="section-analysis" class="hidden space-y-8">
+
+            <!-- 3 grafy -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <h3 class="font-bold mb-4 flex items-center gap-2">
+                        <i data-lucide="pie-chart" class="text-indigo-600 w-5 h-5"></i> Rozdělení odchodů
+                    </h3>
+                    <div class="h-72"><canvas id="chart-pie"></canvas></div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <h3 class="font-bold mb-4 flex items-center gap-2">
+                        <i data-lucide="bar-chart-2" class="text-indigo-600 w-5 h-5"></i> Bilance skupin
+                    </h3>
+                    <div class="h-72"><canvas id="chart-bar"></canvas></div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <h3 class="font-bold mb-4 flex items-center gap-2">
+                        <i data-lucide="activity" class="text-indigo-600 w-5 h-5"></i> Cashflow zásobník
+                    </h3>
+                    <div class="h-72"><canvas id="chart-cashflow"></canvas></div>
+                </div>
+            </div>
+
+            <!-- Podíl kategorií na příjmech -->
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <h3 class="font-bold mb-6 flex items-center gap-2">
+                    <i data-lucide="gauge" class="text-indigo-600 w-5 h-5"></i> Přehled kategorií – podíl na příjmech
+                </h3>
+                <div id="budget-overview" class="space-y-3"></div>
+            </div>
+
+            <!-- Pivot tabulka -->
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <h3 class="font-bold mb-6 flex items-center gap-2">
+                    <i data-lucide="table" class="text-indigo-600 w-5 h-5"></i> Souhrn podle kategorií a účtů
+                </h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500">
+                            <tr>
+                                <th class="px-6 py-3 text-left border-r">Kategorie</th>
+                                <th class="px-6 py-3 text-right">Běžný Účet</th>
+                                <th class="px-6 py-3 text-right border-l">Hypo Účet</th>
+                                <th class="px-6 py-3 text-right border-l font-black text-indigo-600">Celkový Součet</th>
+                                <th class="px-6 py-3 text-right border-l text-slate-400">% z příjmů</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pivot-table-body" class="divide-y divide-slate-100"></tbody>
+                        <tfoot id="pivot-table-foot" class="bg-indigo-50/50 font-bold"></tfoot>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Historická analýza (zobrazí se jen pokud jsou data z více měsíců) -->
+            <div id="section-history" class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hidden">
+                <h3 class="font-bold mb-6 flex items-center gap-2">
+                    <i data-lucide="calendar-range" class="text-indigo-600 w-5 h-5"></i> Měsíční srovnání
+                </h3>
+                <div class="h-72"><canvas id="chart-monthly"></canvas></div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // ── DATA ──────────────────────────────────────────────────────────────
+        let data = JSON.parse(localStorage.getItem('f_pro_data')) || [];
+        // Migrace: přejmenování mesic -> poznamka
+        data = data.map(d => {
+            const rec = { poznamka: d.mesic ?? d.poznamka ?? '', ...d };
+            delete rec.mesic;
+            return rec;
+        });
+
+        let sortKey = 'pohyb';
+        let sortOrder = 'asc';
+        let charts = {};
+
+        // Dynamická barevná paleta pro libovolné typy
+        const COLOR_PALETTE = [
+            '#16a34a', '#ea580c', '#7c3aed', '#2563eb', '#ca8a04',
+            '#0891b2', '#be185d', '#b45309', '#4f46e5', '#0f766e',
+            '#9333ea', '#dc2626', '#059669', '#d97706', '#7c3aed'
+        ];
+        const _colorCache = {};
+        function getColor(str) {
+            if (!str) return '#94a3b8';
+            if (_colorCache[str]) return _colorCache[str];
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) & 0xffffffff;
+            _colorCache[str] = COLOR_PALETTE[Math.abs(hash) % COLOR_PALETTE.length];
+            return _colorCache[str];
+        }
+
+        // ── TOAST ─────────────────────────────────────────────────────────────
+        function showToast(msg, type = 'success') {
+            const icon = { success: '✓', error: '✕', info: 'ℹ' }[type] || '•';
+            const el = document.createElement('div');
+            el.className = `toast ${type}`;
+            el.innerHTML = `<span>${icon}</span><span>${msg}</span>`;
+            document.getElementById('toast-container').appendChild(el);
+            setTimeout(() => el.remove(), 3200);
+        }
+
+        // ── HELPERS ───────────────────────────────────────────────────────────
+        function $(id) { return document.getElementById(id); }
+        function fmt(n) { return n.toLocaleString('cs-CZ'); }
+
+        // ── DYNAMIC FIELDS (datalist + filter dropdowns) ──────────────────────
+        function updateDynamicFields() {
+            const types = [...new Set(data.map(d => d.pohyb).filter(Boolean))].sort();
+            const accounts = [...new Set(data.map(d => d.ucet).filter(Boolean))].sort();
+
+            // Datalist pro formulář
+            $('pohyb-list').innerHTML = types.map(t => `<option value="${t}">`).join('');
+            $('ucet-list').innerHTML = accounts.map(a => `<option value="${a}">`).join('');
+
+            // Filter dropdown – Typ
+            const fpVal = $('filter-pohyb').value;
+            $('filter-pohyb').innerHTML = '<option value="vše">Všechny typy</option>'
+                + types.map(t => `<option value="${t}"${t === fpVal ? ' selected' : ''}>${t}</option>`).join('');
+
+            // Filter dropdown – Účet
+            const fuVal = $('filter-ucet').value;
+            $('filter-ucet').innerHTML = '<option value="vše">Všechny účty</option>'
+                + accounts.map(a => `<option value="${a}"${a === fuVal ? ' selected' : ''}>${a}</option>`).join('');
+        }
+
+        // ── TABS ──────────────────────────────────────────────────────────────
+        function switchTab(tab) {
+            $('section-list').classList.toggle('hidden', tab !== 'list');
+            $('section-analysis').classList.toggle('hidden', tab !== 'analysis');
+            const base = 'pb-4 font-bold text-sm px-2 transition-all';
+            $('tab-list').className = tab === 'list' ? `active-tab ${base}` : `${base} text-slate-400 hover:text-slate-600`;
+            $('tab-analysis').className = tab === 'analysis' ? `active-tab ${base}` : `${base} text-slate-400 hover:text-slate-600`;
+            if (tab === 'analysis') renderAnalysis();
+        }
+
+        // ── RENDER TABLE ──────────────────────────────────────────────────────
+        function renderTable(list) {
+            const tbody = $('table-body');
+            tbody.innerHTML = '';
+
+            if (list.length === 0) {
+                tbody.innerHTML = `
+                    <tr><td colspan="6" class="text-center py-14 text-slate-400">
+                        <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+                            <i data-lucide="search-x" style="width:32px;height:32px;opacity:.3"></i>
+                            <span class="text-sm font-medium">Žádné záznamy neodpovídají zadaným filtrům</span>
+                        </div>
+                    </td></tr>`;
+                lucide.createIcons();
+                return;
+            }
+
+            list.forEach(item => {
+                const color = getColor(item.pohyb);
+                const amtColor = item.suma > 0 ? 'text-green-600' : 'text-slate-900';
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-50 transition-colors group';
+                tr.innerHTML = `
+                    <td class="px-6 py-4 font-semibold text-slate-700">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:${color}"></span>
+                            ${item.pohyb}
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 text-slate-600">${item.info}</td>
+                    <td class="px-6 py-4 text-[11px] font-bold text-slate-400 tracking-wider">${item.ucet || '—'}</td>
+                    <td class="px-6 py-4 text-xs text-slate-400">${item.poznamka || '—'}</td>
+                    <td class="px-6 py-4 text-right font-black ${amtColor}">${fmt(item.suma)} Kč</td>
+                    <td class="px-6 py-4 text-center">
+                        <button onclick="removeItem(${item.id})"
+                            class="p-2 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
+                            aria-label="Smazat záznam: ${item.info}">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    </td>`;
+                tbody.appendChild(tr);
+            });
+
+            lucide.createIcons();
+        }
+
+        // ── SORT INDICATORS ───────────────────────────────────────────────────
+        function updateSortIndicators() {
+            ['pohyb', 'info', 'ucet', 'poznamka', 'suma'].forEach(k => {
+                const th = $(`th-${k}`);
+                if (!th) return;
+                th.classList.remove('sort-asc', 'sort-desc');
+                if (sortKey === k) th.classList.add(sortOrder === 'asc' ? 'sort-asc' : 'sort-desc');
+            });
+        }
+
+        // ── FILTERS ───────────────────────────────────────────────────────────
+        function applyFilters() {
+            const search = $('filter-search').value.toLowerCase();
+            const type = $('filter-pohyb').value;
+            const account = $('filter-ucet').value;
+
+            let filtered = data.filter(item => {
+                const matchSearch = item.info.toLowerCase().includes(search)
+                    || (item.poznamka || '').toLowerCase().includes(search);
+                const matchType = type === 'vše' ? true : item.pohyb === type;
+                const matchAccount = account === 'vše' ? true : item.ucet === account;
+                return matchSearch && matchType && matchAccount;
+            });
+
+            filtered.sort((a, b) => {
+                let va = a[sortKey] ?? '', vb = b[sortKey] ?? '';
+                if (typeof va === 'string') return sortOrder === 'asc' ? va.localeCompare(vb, 'cs') : vb.localeCompare(va, 'cs');
+                return sortOrder === 'asc' ? va - vb : vb - va;
+            });
+
+            $('filtered-count').textContent = filtered.length;
+            renderTable(filtered);
+            updateSortIndicators();
+            updateStats();
+        }
+
+        function sortData(key) {
+            if (sortKey === key) sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+            else { sortKey = key; sortOrder = 'asc'; }
+            applyFilters();
+        }
+
+        function resetFilters() {
+            $('filter-search').value = '';
+            $('filter-pohyb').value = 'vše';
+            $('filter-ucet').value = 'vše';
+            applyFilters();
+        }
+
+        // ── REMOVE ────────────────────────────────────────────────────────────
+        function removeItem(id) {
+            const item = data.find(d => d.id === id);
+            if (!confirm(`Opravdu smazat záznam "${item?.info || ''}"?`)) return;
+            data = data.filter(d => d.id !== id);
+            save();
+            updateDynamicFields();
+            applyFilters();
+            showToast('Záznam smazán.', 'info');
+        }
+
+        // ── ADD ───────────────────────────────────────────────────────────────
+        $('addForm').onsubmit = function (e) {
+            e.preventDefault();
+            const p = $('in-pohyb').value.trim();
+            let s = parseFloat($('in-suma').value);
+            const i = $('in-info').value.trim();
+            const u = $('in-ucet').value.trim();
+            const z = $('in-poznamka').value.trim();
+
+            if (!p) { showToast('Zadej typ záznamu.', 'error'); return; }
+            if (isNaN(s) || s <= 0) { showToast('Zadej platnou kladnou částku.', 'error'); return; }
+            if (!i) { showToast('Zadej název záznamu.', 'error'); return; }
+
+            // Automaticky změnit znaménko pro výdajové typy
+            // Příjem = kladný, vše ostatní = záporný
+            const isIncome = p.toLowerCase().includes('příjem');
+            if (!isIncome && s > 0) s = -s;
+
+            data.push({ id: Date.now(), pohyb: p, info: i, suma: s, ucet: u, poznamka: z });
+            save();
+            this.reset();
+            updateDynamicFields();
+            applyFilters();
+            showToast('Záznam byl přidán!', 'success');
+        };
+
+        // ── STATS ─────────────────────────────────────────────────────────────
+        function updateStats() {
+            const income = data.filter(d => d.suma > 0).reduce((s, d) => s + d.suma, 0);
+            const expense = Math.abs(data.filter(d => d.pohyb === 'výdaj').reduce((s, d) => s + d.suma, 0));
+            const savings = Math.abs(data.filter(d => d.pohyb === 'spoření').reduce((s, d) => s + d.suma, 0));
+            const balance = data.reduce((s, d) => s + d.suma, 0);
+            const bezny = data.filter(d => d.ucet === 'běž').reduce((s, d) => s + d.suma, 0);
+            const hypo = data.filter(d => d.ucet === 'hypo').reduce((s, d) => s + d.suma, 0);
+            const allOut = Math.abs(data.filter(d => d.suma < 0).reduce((s, d) => s + d.suma, 0));
+            const outNoSav = Math.abs(data.filter(d => d.suma < 0 && d.pohyb !== 'spoření').reduce((s, d) => s + d.suma, 0));
+            const free = income - outNoSav;
+
+            $('stat-income').textContent = fmt(income) + ' Kč';
+            $('stat-expense').textContent = fmt(expense) + ' Kč';
+            $('stat-savings').textContent = fmt(savings) + ' Kč';
+            $('stat-balance').textContent = fmt(balance) + ' Kč';
+            $('stat-bezny').textContent = fmt(bezny) + ' Kč';
+            $('stat-hypo').textContent = fmt(hypo) + ' Kč';
+
+            const freeEl = $('stat-free');
+            freeEl.textContent = fmt(free) + ' Kč';
+            freeEl.className = `text-2xl font-black ${free >= 0 ? 'text-blue-600' : 'text-red-600'}`;
+
+            $('stat-savings-rate').textContent = income > 0 ? ((savings / income) * 100).toFixed(1) + ' %' : '—';
+            $('stat-cost-ratio').textContent = income > 0 ? ((allOut / income) * 100).toFixed(1) + ' %' : '—';
+        }
+
+        // ── ANALYSIS ─────────────────────────────────────────────────────────
+        function renderAnalysis() {
+            Object.values(charts).forEach(c => c?.destroy());
+            charts = {};
+
+            const income = data.filter(d => d.suma > 0).reduce((s, d) => s + d.suma, 0);
+
+            // Kategorie odchodů (všechny položky se záporným suma)
+            const catSums = {};
+            data.forEach(d => { if (d.suma < 0) catSums[d.pohyb] = (catSums[d.pohyb] || 0) + Math.abs(d.suma); });
+
+            // Bilance – dynamická (všechny typy)
+            const allTypes = [...new Set(data.map(d => d.pohyb))];
+            const bilanceLabels = allTypes;
+            const bilanceData = allTypes.map(t => {
+                const s = data.filter(d => d.pohyb === t).reduce((a, d) => a + d.suma, 0);
+                return Math.abs(s);
+            });
+
+            // Chart 1 – Doughnut
+            charts.pie = new Chart($('chart-pie').getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(catSums),
+                    datasets: [{
+                        data: Object.values(catSums),
+                        backgroundColor: Object.keys(catSums).map(k => getColor(k)),
+                        borderWidth: 0, hoverOffset: 15
+                    }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { font: { family: 'Plus Jakarta Sans', size: 11 } } },
+                        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${fmt(ctx.raw)} Kč` } }
+                    }
+                }
+            });
+
+            // Chart 2 – Bar bilance (dynamický)
+            charts.bar = new Chart($('chart-bar').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: bilanceLabels,
+                    datasets: [{
+                        label: 'Kč', data: bilanceData,
+                        backgroundColor: bilanceLabels.map(t => getColor(t)),
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true, ticks: { callback: v => fmt(v) } } },
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${fmt(ctx.raw)} Kč` } } }
+                }
+            });
+
+            // Chart 3 – Cashflow zásobník
+            const outGroups = {};
+            data.filter(d => d.suma < 0).forEach(d => {
+                outGroups[d.pohyb] = (outGroups[d.pohyb] || 0) + Math.abs(d.suma);
+            });
+            const cfLabels = ['Příjmy', ...Object.keys(outGroups), 'Zůstatek'];
+            const cfBalance = income - Object.values(outGroups).reduce((s, v) => s + v, 0);
+            const cfData = [income, ...Object.values(outGroups), cfBalance];
+            const cfColors = [
+                getColor('příjem'),
+                ...Object.keys(outGroups).map(k => getColor(k)),
+                cfBalance >= 0 ? '#0ea5e9' : '#dc2626'
+            ];
+            charts.cashflow = new Chart($('chart-cashflow').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: cfLabels,
+                    datasets: [{ label: 'Kč', data: cfData, backgroundColor: cfColors, borderRadius: 8 }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true, ticks: { callback: v => fmt(v) } } },
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${fmt(ctx.raw)} Kč` } } }
+                }
+            });
+
+            renderBudgetOverview(income, catSums);
+            renderPivotTable(income);
+        }
+
+        // ── BUDGET OVERVIEW ───────────────────────────────────────────────────
+        function renderBudgetOverview(income, catSums) {
+            const cont = $('budget-overview');
+            cont.innerHTML = '';
+            if (!income) { cont.innerHTML = '<p class="text-sm text-slate-400">Nejsou k dispozici žádné příjmy.</p>'; return; }
+            Object.entries(catSums).sort((a, b) => b[1] - a[1]).forEach(([cat, sum]) => {
+                const pct = Math.min((sum / income) * 100, 100);
+                const color = getColor(cat);
+                const div = document.createElement('div');
+                div.innerHTML = `
+                    <div class="flex justify-between items-center mb-1">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:${color}"></span>
+                            <span class="text-sm font-semibold text-slate-700">${cat}</span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="text-sm font-black text-slate-900">${fmt(sum)} Kč</span>
+                            <span class="text-xs font-bold text-slate-400 w-12 text-right">${pct.toFixed(1)} %</span>
+                        </div>
+                    </div>
+                    <div class="budget-bar">
+                        <div class="budget-bar-fill" style="width:${pct}%;background:${color}"></div>
+                    </div>`;
+                cont.appendChild(div);
+            });
+        }
+
+        // ── PIVOT TABLE (dynamické sloupce účtů) ─────────────────────────────
+        function renderPivotTable(income) {
+            const totalInc = income ?? data.filter(d => d.suma > 0).reduce((s, d) => s + d.suma, 0);
+            const cats     = [...new Set(data.map(d => d.pohyb))];
+            const accounts = [...new Set(data.map(d => d.ucet).filter(Boolean))];
+            const tbody = $('pivot-table-body'), tfoot = $('pivot-table-foot');
+
+            // Dynamická hlavička
+            const thead = tfoot.closest('table').querySelector('thead tr');
+            thead.innerHTML = `
+                <th class="px-6 py-3 text-left border-r">Kategorie</th>
+                ${accounts.map(a => `<th class="px-6 py-3 text-right border-l">${a || '(bez účtu)'}</th>`).join('')}
+                <th class="px-6 py-3 text-right border-l font-black text-indigo-600">Součet</th>
+                <th class="px-6 py-3 text-right border-l text-slate-400">% z příjmů</th>`;
+
+            tbody.innerHTML = '';
+            const totals = Array(accounts.length).fill(0);
+
+            cats.forEach(cat => {
+                const sums = accounts.map(a =>
+                    data.filter(d => d.pohyb === cat && d.ucet === a).reduce((s, d) => s + d.suma, 0)
+                );
+                const sumRow = sums.reduce((s, v) => s + v, 0);
+                sums.forEach((v, i) => totals[i] += v);
+                const pct = totalInc > 0 && sumRow < 0 ? (Math.abs(sumRow) / totalInc * 100).toFixed(1) + ' %' : '—';
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-6 py-4 font-bold text-slate-600 border-r">${cat}</td>
+                    ${sums.map(s => `<td class="px-6 py-4 text-right border-l ${s >= 0 ? 'text-green-600' : 'text-slate-700'}">${fmt(s)} Kč</td>`).join('')}
+                    <td class="px-6 py-4 text-right border-l font-bold ${sumRow >= 0 ? 'text-indigo-600' : 'text-slate-900'}">${fmt(sumRow)} Kč</td>
+                    <td class="px-6 py-4 text-right border-l text-sm text-slate-400">${pct}</td>`;
+                tbody.appendChild(tr);
+            });
+
+            const grandTotal = totals.reduce((s, v) => s + v, 0);
+            tfoot.innerHTML = `
+                <tr>
+                    <td class="px-6 py-4 border-r text-slate-700">CELKOVÝ SOUČET</td>
+                    ${totals.map(t => `<td class="px-6 py-4 text-right border-l">${fmt(t)} Kč</td>`).join('')}
+                    <td class="px-6 py-4 text-right border-l font-black text-indigo-700">${fmt(grandTotal)} Kč</td>
+                    <td class="px-6 py-4 border-l"></td>
+                </tr>`;
+        }
+
+        // ── SAVE ──────────────────────────────────────────────────────────────
+        let _saveTimer = null;
+        function save() {
+            localStorage.setItem('f_pro_data', JSON.stringify(data));
+            // Vizuální feedback
+            const ind = $('save-indicator');
+            const lbl = $('save-label');
+            if (!ind) return;
+            lbl.textContent = `Uloženo (${data.length} záznamů)`;
+            ind.classList.remove('hidden');
+            ind.classList.add('flex');
+            clearTimeout(_saveTimer);
+            _saveTimer = setTimeout(() => {
+                ind.classList.add('hidden');
+                ind.classList.remove('flex');
+            }, 3000);
+        }
+
+        // ── CLEAR ALL ─────────────────────────────────────────────────────────
+        function clearAll() {
+            if (!confirm(`Opravdu vymazat VŠECHNA data (${data.length} záznamů)?\nTuto akci nelze vrátit zpět.`)) return;
+            data = [];
+            save();
+            populateMonthFilter();
+            applyFilters();
+            showToast('Všechna data byla vymazána.', 'info');
+        }
+
+        // ── EXPORT JSON ───────────────────────────────────────────────────────
+        function exportJSON() {
+            const a = document.createElement('a');
+            a.href = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(data, null, 2));
+            a.download = 'finance_export.json';
+            a.click();
+        }
+
+        // ── EXPORT CSV ────────────────────────────────────────────────────────
+        function exportCSV() {
+            const header = ['id', 'pohyb', 'info', 'suma', 'ucet', 'mesic'];
+            const rows = data.map(d => header.map(k => JSON.stringify(d[k] ?? '')).join(','));
+            const csv = [header.join(','), ...rows].join('\r\n');
+            const a = document.createElement('a');
+            a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+            a.download = 'finance_export.csv';
+            a.click();
+            showToast('CSV exportováno.', 'success');
+        }
+
+        // ── IMPORT JSON ───────────────────────────────────────────────────────
+        function importJSON(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    // Základní validace struktury
+                    if (!Array.isArray(parsed)) throw new Error('Soubor musí obsahovat pole záznamů.');
+                    const required = ['id', 'pohyb', 'suma', 'info', 'ucet'];
+                    parsed.forEach((item, idx) => {
+                        required.forEach(k => {
+                            if (!(k in item)) throw new Error(`Záznam č.${idx + 1} chybí pole "${k}".`);
+                        });
+                    });
+                    data = parsed.map(d => {
+                        const rec = { poznamka: d.mesic ?? d.poznamka ?? '', ...d };
+                        delete rec.mesic;
+                        return rec;
+                    });
+                    save();
+                    updateDynamicFields();
+                    applyFilters();
+                    if ($('section-analysis') && !$('section-analysis').classList.contains('hidden')) renderAnalysis();
+                    showToast(`Import dokončen (${data.length} záznamů).`, 'success');
+                } catch (err) {
+                    showToast('Chyba importu: ' + err.message, 'error');
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = ''; // FIX: reset input, aby šlo reimportovat stejný soubor
+        }
+
+        // ── INIT ──────────────────────────────────────────────────────────────
+        window.onload = () => {
+            updateDynamicFields();
+            applyFilters();
+            lucide.createIcons();
+        };
+    </script>
+</body>
+
+</html>
